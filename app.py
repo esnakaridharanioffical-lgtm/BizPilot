@@ -3,6 +3,8 @@ import plotly.express as px
 
 from src.data_processing import load_business_data, clean_business_data
 from src.prediction import forecast_revenue, evaluate_forecast_model
+from src.recommendations import generate_recommendations
+
 
 st.set_page_config(
     page_title="BizPilot",
@@ -20,7 +22,11 @@ st.write(
 
 st.divider()
 
-# File Upload
+
+# ============================================================
+# FILE UPLOAD
+# ============================================================
+
 st.header("📂 Upload Business Data")
 
 uploaded_file = st.file_uploader(
@@ -28,48 +34,80 @@ uploaded_file = st.file_uploader(
     type=["csv", "xlsx", "xls"]
 )
 
+
 if uploaded_file is not None:
 
     try:
-        # Load data
+
+        # ====================================================
+        # LOAD & CLEAN DATA
+        # ====================================================
+
         df = load_business_data(uploaded_file)
 
-        # Clean data
         df = clean_business_data(df)
 
         st.success("Business data uploaded successfully! ✅")
 
-        # Business KPIs
+
+        # ====================================================
+        # BUSINESS KPIs
+        # ====================================================
+
         total_revenue = df["revenue"].sum()
         total_expenses = df["expense"].sum()
         total_profit = total_revenue - total_expenses
         total_units = df["quantity_sold"].sum()
+
+        profit_margin = (
+            (total_profit / total_revenue) * 100
+            if total_revenue > 0
+            else 0
+        )
 
         st.subheader("📊 Business Overview")
 
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            st.metric("💰 Revenue", f"₹{total_revenue:,.0f}")
+            st.metric(
+                "💰 Revenue",
+                f"₹{total_revenue:,.0f}"
+            )
 
         with col2:
-            st.metric("💸 Expenses", f"₹{total_expenses:,.0f}")
+            st.metric(
+                "💸 Expenses",
+                f"₹{total_expenses:,.0f}"
+            )
 
         with col3:
-            st.metric("📈 Profit", f"₹{total_profit:,.0f}")
+            st.metric(
+                "📈 Profit",
+                f"₹{total_profit:,.0f}"
+            )
 
         with col4:
-            st.metric("📦 Units Sold", f"{total_units:,}")
+            st.metric(
+                "📦 Units Sold",
+                f"{total_units:,}"
+            )
 
-        # Business Trends
+
+        # ====================================================
+        # BUSINESS TRENDS
+        # ====================================================
+
         st.subheader("📈 Business Trends")
 
-        trend_data = df.groupby("date", as_index=False)[
-            ["revenue", "expense"]
-        ].sum()
+        trend_data = df.groupby(
+            "date",
+            as_index=False
+        )[["revenue", "expense"]].sum()
 
         trend_data["profit"] = (
-            trend_data["revenue"] - trend_data["expense"]
+            trend_data["revenue"]
+            - trend_data["expense"]
         )
 
         fig = px.line(
@@ -84,16 +122,26 @@ if uploaded_file is not None:
             fig,
             use_container_width=True
         )
-                # Product Performance
+
+
+        # ====================================================
+        # PRODUCT PERFORMANCE
+        # ====================================================
+
         st.subheader("🛍️ Product Performance")
 
         product_data = df.groupby(
             "product",
             as_index=False
-        )[["revenue", "expense", "quantity_sold"]].sum()
+        )[[
+            "revenue",
+            "expense",
+            "quantity_sold"
+        ]].sum()
 
         product_data["profit"] = (
-            product_data["revenue"] - product_data["expense"]
+            product_data["revenue"]
+            - product_data["expense"]
         )
 
         fig_product = px.bar(
@@ -108,48 +156,71 @@ if uploaded_file is not None:
             fig_product,
             use_container_width=True
         )
-                # Automatic Business Insights
+
+
+        # ====================================================
+        # AUTOMATIC BUSINESS INSIGHTS
+        # ====================================================
+
         st.subheader("💡 Business Insights")
 
         top_revenue_product = product_data.loc[
-            product_data["revenue"].idxmax(), "product"
+            product_data["revenue"].idxmax(),
+            "product"
         ]
 
         lowest_revenue_product = product_data.loc[
-            product_data["revenue"].idxmin(), "product"
+            product_data["revenue"].idxmin(),
+            "product"
         ]
 
         top_profit_product = product_data.loc[
-            product_data["profit"].idxmax(), "product"
+            product_data["profit"].idxmax(),
+            "product"
         ]
 
         best_selling_product = product_data.loc[
-            product_data["quantity_sold"].idxmax(), "product"
+            product_data["quantity_sold"].idxmax(),
+            "product"
         ]
 
         col1, col2 = st.columns(2)
 
         with col1:
+
             st.info(
-                f"🏆 **Top Revenue Product:** {top_revenue_product}"
+                f"🏆 **Top Revenue Product:** "
+                f"{top_revenue_product}"
             )
 
             st.info(
-                f"💰 **Top Profit Product:** {top_profit_product}"
+                f"💰 **Top Profit Product:** "
+                f"{top_profit_product}"
             )
 
         with col2:
+
             st.warning(
-                f"📉 **Lowest Revenue Product:** {lowest_revenue_product}"
+                f"📉 **Lowest Revenue Product:** "
+                f"{lowest_revenue_product}"
             )
 
             st.success(
-                f"📦 **Best-Selling Product:** {best_selling_product}"
+                f"📦 **Best-Selling Product:** "
+                f"{best_selling_product}"
             )
-                    # Revenue Forecast
+
+
+        # ====================================================
+        # REVENUE FORECAST
+        # ====================================================
+
         st.subheader("🔮 Revenue Forecast")
 
-        forecast_data = forecast_revenue(df, days=7)
+        forecast_data = forecast_revenue(
+            df,
+            days=7
+        )
 
         fig_forecast = px.line(
             forecast_data,
@@ -168,7 +239,12 @@ if uploaded_file is not None:
             "🔮 BizPilot uses historical revenue trends "
             "to estimate the next 7 days."
         )
-                # Model Evaluation
+
+
+        # ====================================================
+        # MODEL PERFORMANCE
+        # ====================================================
+
         st.subheader("📏 Forecast Model Performance")
 
         mae = evaluate_forecast_model(df)
@@ -183,42 +259,89 @@ if uploaded_file is not None:
             "between predicted and actual revenue."
         )
 
-                # Smart Alerts
+
+        # ====================================================
+        # SMART ALERTS
+        # ====================================================
+
         st.subheader("🚨 Smart Alerts")
 
-        profit_margin = (total_profit / total_revenue) * 100
-
         if profit_margin < 10:
+
             st.error(
-                f"⚠️ Low profit margin detected: {profit_margin:.1f}%"
-            )
-        elif profit_margin < 20:
-            st.warning(
-                f"⚠️ Profit margin needs attention: {profit_margin:.1f}%"
-            )
-        else:
-            st.success(
-                f"✅ Healthy profit margin: {profit_margin:.1f}%"
+                f"⚠️ Low profit margin detected: "
+                f"{profit_margin:.1f}%"
             )
 
-        expense_ratio = (total_expenses / total_revenue) * 100
+        elif profit_margin < 20:
+
+            st.warning(
+                f"⚠️ Profit margin needs attention: "
+                f"{profit_margin:.1f}%"
+            )
+
+        else:
+
+            st.success(
+                f"✅ Healthy profit margin: "
+                f"{profit_margin:.1f}%"
+            )
+
+
+        # Expense ratio
+
+        expense_ratio = (
+            (total_expenses / total_revenue) * 100
+            if total_revenue > 0
+            else 0
+        )
 
         if expense_ratio > 70:
+
             st.warning(
-                f"💸 Expenses are high: {expense_ratio:.1f}% of revenue."
-            )
-        else:
-            st.info(
-                f"💰 Expenses represent {expense_ratio:.1f}% of revenue."
+                f"💸 Expenses are high: "
+                f"{expense_ratio:.1f}% of revenue."
             )
 
+        else:
+
+            st.info(
+                f"💰 Expenses represent "
+                f"{expense_ratio:.1f}% of revenue."
+            )
+
+
         if lowest_revenue_product:
+
             st.warning(
                 f"📉 Watch product performance: "
                 f"{lowest_revenue_product} has the lowest revenue."
             )
 
-        # Data Preview
+
+        # ====================================================
+        # BUSINESS RECOMMENDATIONS
+        # ====================================================
+
+        st.subheader("🤖 BizPilot Recommendations")
+
+        recommendations = generate_recommendations(
+            total_revenue,
+            total_expenses,
+            total_profit,
+            product_data,
+            profit_margin
+        )
+
+        for recommendation in recommendations:
+
+            st.info(recommendation)
+
+
+        # ====================================================
+        # DATA PREVIEW
+        # ====================================================
+
         st.subheader("📋 Data Preview")
 
         st.dataframe(
@@ -227,14 +350,22 @@ if uploaded_file is not None:
         )
 
         st.info(
-            f"BizPilot detected {df.shape[0]} rows and "
+            f"BizPilot detected "
+            f"{df.shape[0]} rows and "
             f"{df.shape[1]} columns."
         )
 
+
     except Exception as e:
-        st.error(f"Error processing the file: {e}")
+
+        st.error(
+            f"Error processing the file: {e}"
+        )
+
 
 else:
+
     st.info(
-        "Upload a CSV or Excel file to start analyzing your business data."
+        "Upload a CSV or Excel file to start "
+        "analyzing your business data."
     )
