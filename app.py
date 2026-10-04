@@ -4,6 +4,7 @@ import plotly.express as px
 from src.data_processing import load_business_data, clean_business_data
 from src.prediction import forecast_revenue, evaluate_forecast_model
 from src.recommendations import generate_recommendations
+from src.assistant import business_assistant
 
 
 st.set_page_config(
@@ -337,6 +338,37 @@ if uploaded_file is not None:
 
             st.info(recommendation)
 
+                # ====================================================
+        # AI BUSINESS ASSISTANT
+        # ====================================================
+
+        st.subheader("🤖 BizPilot AI Business Assistant")
+
+        st.write(
+            "Ask questions about your business data "
+            "and get instant data-driven answers."
+        )
+
+        question = st.text_input(
+            "Ask BizPilot something about your business:",
+            placeholder="Example: Which product makes the most profit?"
+        )
+
+        if question:
+
+            answer = business_assistant(
+                question,
+                df,
+                total_revenue,
+                total_expenses,
+                total_profit,
+                profit_margin,
+                product_data,
+                forecast_data,
+                recommendations
+            )
+
+            st.success(answer)
 
         # ====================================================
         # DATA PREVIEW
