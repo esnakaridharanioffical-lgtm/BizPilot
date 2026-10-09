@@ -187,7 +187,6 @@ def business_assistant(
         "why" in question
         and "performing well" in question
     ):
-
         matched_product = None
 
         for product in product_data["product"]:
@@ -226,6 +225,598 @@ def business_assistant(
             f"substantial profit relative to its revenue."
         )
 
+
+
+        # =========================================================
+    # EXPENSE TREND ANALYSIS
+    # =========================================================
+
+    if (
+        ("expense" in question or "expenses" in question)
+        and (
+            "trend" in question
+            or "how are expenses changing" in question
+            or "how have expenses changed" in question
+        )
+    ):
+
+        try:
+            trend_df = df.copy()
+
+            trend_df["date"] = pd.to_datetime(
+                trend_df["date"]
+            )
+
+            daily_expense = (
+                trend_df
+                .groupby("date")
+                .agg(
+                    expense=("expense", "sum"),
+                    revenue=("revenue", "sum")
+                )
+                .sort_index()
+            )
+
+            if len(daily_expense) < 2:
+                return (
+                    "I need data from at least two different dates "
+                    "to analyze your expense trend."
+                )
+
+            first_expense = daily_expense["expense"].iloc[0]
+            last_expense = daily_expense["expense"].iloc[-1]
+
+            expense_change = last_expense - first_expense
+
+            expense_change_pct = (
+                (expense_change / first_expense) * 100
+                if first_expense != 0
+                else 0
+            )
+
+            if expense_change > 0:
+                return (
+                    f"Your expense trend is increasing. "
+                    f"Expenses rose from ₹{first_expense:,.2f} "
+                    f"to ₹{last_expense:,.2f}, an increase of "
+                    f"{expense_change_pct:.1f}%. "
+                    "This indicates that your costs are currently "
+                    "moving upward and should be monitored closely."
+                )
+
+            elif expense_change < 0:
+                return (
+                    f"Your expense trend is decreasing. "
+                    f"Expenses fell from ₹{first_expense:,.2f} "
+                    f"to ₹{last_expense:,.2f}, a decrease of "
+                    f"{abs(expense_change_pct):.1f}%. "
+                    "This indicates that your overall cost level "
+                    "has improved over the recorded period."
+                )
+
+            else:
+                return (
+                    "Your expense trend is relatively stable. "
+                    "There is no significant change between the "
+                    "first and latest recorded expense values."
+                )
+
+        except Exception:
+            return (
+                "I couldn't analyze the expense trend because "
+                "the expense or date data could not be processed."
+            )
+
+
+
+    # =========================================================
+    # EXPENSE INTELLIGENCE
+    # =========================================================
+
+    if (
+        ("expense" in question or "expenses" in question)
+        and (
+            "why" in question
+            or "increasing" in question
+            or "increase" in question
+            or "decreasing" in question
+            or "decrease" in question
+            or "performance" in question
+            or "performing" in question
+            or "how is" in question
+            or "how are" in question
+            or "doing" in question
+            or "happening" in question
+        )
+        and "trend" not in question
+    ):
+
+        try:
+            expense_df = df.copy()
+            expense_df["date"] = pd.to_datetime(expense_df["date"])
+
+            daily_data = (
+                expense_df
+                .groupby("date")
+                .agg(
+                    revenue=("revenue", "sum"),
+                    expense=("expense", "sum")
+                )
+                .sort_index()
+            )
+
+            if len(daily_data) < 2:
+                return (
+                    "I need data from at least two different dates "
+                    "to analyze your expense performance."
+                )
+
+            if len(daily_data) >= 14:
+                first_dates = daily_data.index[:7]
+                latest_dates = daily_data.index[-7:]
+            else:
+                midpoint = len(daily_data) // 2
+                first_dates = daily_data.index[:midpoint]
+                latest_dates = daily_data.index[midpoint:]
+
+            first_period = expense_df[
+                expense_df["date"].isin(first_dates)
+            ]
+            latest_period = expense_df[
+                expense_df["date"].isin(latest_dates)
+            ]
+
+            first_expense = first_period["expense"].sum()
+            latest_expense = latest_period["expense"].sum()
+            first_revenue = first_period["revenue"].sum()
+            latest_revenue = latest_period["revenue"].sum()
+
+            expense_change = latest_expense - first_expense
+
+            expense_change_pct = (
+                (expense_change / abs(first_expense)) * 100
+                if first_expense != 0
+                else 0
+            )
+
+            first_expense_ratio = (
+                (first_expense / first_revenue) * 100
+                if first_revenue > 0
+                else 0
+            )
+
+            latest_expense_ratio = (
+                (latest_expense / latest_revenue) * 100
+                if latest_revenue > 0
+                else 0
+            )
+
+            ratio_change = (
+                latest_expense_ratio - first_expense_ratio
+            )
+
+            if expense_change_pct > 2:
+                direction = "increased"
+            elif expense_change_pct < -2:
+                direction = "decreased"
+            else:
+                direction = "remained relatively stable"
+
+            # Product-level expense drilldown.
+            first_product = (
+                first_period
+                .groupby("product")["expense"]
+                .sum()
+            )
+
+            latest_product = (
+                latest_period
+                .groupby("product")["expense"]
+                .sum()
+            )
+
+            product_expense = pd.concat(
+                [first_product, latest_product],
+                axis=1
+            ).fillna(0)
+
+            product_expense.columns = [
+                "first_expense",
+                "latest_expense"
+            ]
+
+            product_expense["change"] = (
+                product_expense["latest_expense"]
+                - product_expense["first_expense"]
+            )
+
+            rising_costs = (
+                product_expense[
+                    product_expense["change"] > 0
+                ]
+                .sort_values("change", ascending=False)
+                .head(3)
+            )
+
+            largest_expense_product = (
+                latest_product.idxmax()
+                if len(latest_product) > 0
+                else None
+            )
+
+            largest_expense_value = (
+                latest_product.max()
+                if len(latest_product) > 0
+                else 0
+            )
+
+            if direction == "increased":
+                if ratio_change > 1:
+                    pressure = (
+                        "expenses increased and are taking a larger "
+                        "share of revenue"
+                    )
+                elif latest_revenue < first_revenue:
+                    pressure = (
+                        "expenses increased while revenue decreased"
+                    )
+                else:
+                    pressure = (
+                        "higher operating or product-level costs"
+                    )
+            elif direction == "decreased":
+                pressure = (
+                    "overall expenses decreased, improving the cost position"
+                )
+            else:
+                pressure = (
+                    "relatively stable costs compared with revenue"
+                )
+
+            if len(rising_costs) > 0:
+                cost_lines = []
+                for product, row in rising_costs.iterrows():
+                    cost_lines.append(
+                        f"• {product}: "
+                        f"₹{row['change']:,.2f} higher expense"
+                    )
+                cost_text = "\n".join(cost_lines)
+            else:
+                cost_text = (
+                    "• No product showed a meaningful increase "
+                    "in expense."
+                )
+
+            if direction == "increased":
+                if len(rising_costs) > 0:
+                    action = (
+                        "Investigate the products with the largest "
+                        "expense increases and compare their costs "
+                        "with revenue and profit contribution. "
+                        "If detailed cost data is available, review "
+                        "supplier prices, purchasing quantities, and "
+                        "operating costs before changing sales volume."
+                    )
+                else:
+                    action = (
+                        "Review major operating and purchasing costs "
+                        "and compare them with revenue and profit before "
+                        "the next business cycle."
+                    )
+            elif direction == "decreased":
+                if len(rising_costs) > 0:
+                    action = (
+                        "Maintain the improved cost position, but investigate "
+                        "the products with notable expense increases and "
+                        "compare their costs with revenue and profit contribution."
+                    )
+                else:
+                    action = (
+                        "Maintain the improved cost position while monitoring "
+                        "major expense contributors and their impact on revenue "
+                        "and profit."
+                    )
+            else:
+                action = (
+                    "Costs are relatively stable. Monitor the largest "
+                    "expense contributors and look for opportunities "
+                    "to improve the expense-to-revenue ratio."
+                )
+
+            return (
+                f"💸 Expense Intelligence\n\n"
+                f"Your expenses {direction} by "
+                f"{abs(expense_change_pct):.1f}% between the "
+                f"comparison periods.\n\n"
+                f"First period expenses: "
+                f"₹{first_expense:,.2f}\n"
+                f"Latest period expenses: "
+                f"₹{latest_expense:,.2f}\n"
+                f"Expense-to-revenue ratio: "
+                f"{first_expense_ratio:.1f}% → "
+                f"{latest_expense_ratio:.1f}% "
+                f"({ratio_change:+.1f} percentage points)\n\n"
+                f"🔎 Main cost movement: {pressure}.\n\n"
+                f"⚠️ Notable expense increases:\n"
+                f"{cost_text}\n\n"
+                f"📌 Largest current expense contributor: "
+                f"{largest_expense_product} "
+                f"(₹{largest_expense_value:,.2f})\n\n"
+                f"💡 Business action: {action}"
+            )
+
+        except Exception:
+            return (
+                "I couldn't analyze expense performance because "
+                "the available expense, revenue, product, or date "
+                "data could not be processed."
+            )
+
+    # =========================================================
+    # EXPENSE DIAGNOSIS
+    # =========================================================
+
+    expense_change_words = (
+        "increase",
+        "increased",
+        "increasing",
+        "rise",
+        "risen",
+        "rising",
+        "grow",
+        "growing",
+        "grew",
+        "change",
+        "changed",
+        "decrease",
+        "decreased",
+        "decline",
+        "declined"
+    )
+
+    if (
+        ("expense" in question or "expenses" in question)
+        and (
+            "why" in question
+            or any(word in question for word in expense_change_words)
+        )
+        and "trend" not in question
+    ):
+
+        try:
+            expense_df = df.copy()
+
+            expense_df["date"] = pd.to_datetime(
+                expense_df["date"]
+            )
+
+            daily_expense = (
+                expense_df
+                .groupby("date")
+                .agg(
+                    revenue=("revenue", "sum"),
+                    expense=("expense", "sum"),
+                    units=("quantity_sold", "sum")
+                )
+                .sort_index()
+            )
+
+            if len(daily_expense) < 2:
+                return (
+                    "I need data from at least two different dates "
+                    "to analyze your expense trend."
+                )
+
+            # -------------------------------------------------
+            # Compare first 7 days with latest 7 days
+            # -------------------------------------------------
+
+            window_size = min(7, len(daily_expense))
+
+            first_period = daily_expense.iloc[:window_size]
+            latest_period = daily_expense.iloc[-window_size:]
+
+            first_expense = first_period["expense"].sum()
+            latest_expense = latest_period["expense"].sum()
+
+            first_revenue = first_period["revenue"].sum()
+            latest_revenue = latest_period["revenue"].sum()
+
+            first_units = first_period["units"].sum()
+            latest_units = latest_period["units"].sum()
+
+            expense_change = latest_expense - first_expense
+
+            expense_change_pct = (
+                (expense_change / first_expense) * 100
+                if first_expense != 0
+                else 0
+            )
+
+            # -------------------------------------------------
+            # Expense-to-revenue ratio
+            # -------------------------------------------------
+
+            first_expense_ratio = (
+                (first_expense / first_revenue) * 100
+                if first_revenue > 0
+                else 0
+            )
+
+            latest_expense_ratio = (
+                (latest_expense / latest_revenue) * 100
+                if latest_revenue > 0
+                else 0
+            )
+
+            ratio_change = (
+                latest_expense_ratio - first_expense_ratio
+            )
+
+            # -------------------------------------------------
+            # Expense per unit
+            # -------------------------------------------------
+
+            first_expense_per_unit = (
+                first_expense / first_units
+                if first_units > 0
+                else 0
+            )
+
+            latest_expense_per_unit = (
+                latest_expense / latest_units
+                if latest_units > 0
+                else 0
+            )
+
+            expense_per_unit_change_pct = (
+                (
+                    (latest_expense_per_unit - first_expense_per_unit)
+                    / first_expense_per_unit
+                ) * 100
+                if first_expense_per_unit > 0
+                else 0
+            )
+
+            # -------------------------------------------------
+            # Product-level expense contribution
+            # -------------------------------------------------
+
+            product_expense = (
+                expense_df
+                .groupby("product")["expense"]
+                .sum()
+                .sort_values(ascending=False)
+            )
+
+            highest_expense_product = (
+                product_expense.index[0]
+                if not product_expense.empty
+                else "Unknown"
+            )
+
+            highest_expense_value = (
+                product_expense.iloc[0]
+                if not product_expense.empty
+                else 0
+            )
+
+            # -------------------------------------------------
+            # Determine likely reason
+            # -------------------------------------------------
+
+            if expense_per_unit_change_pct > 10:
+
+                reason = (
+                    "The increase appears to be mainly related to "
+                    "higher expense per unit, suggesting that the "
+                    "cost of products or operations may have increased."
+                )
+
+            elif ratio_change > 5:
+
+                reason = (
+                    "Expenses are growing faster relative to revenue, "
+                    "which is putting additional pressure on profitability."
+                )
+
+            elif latest_units > first_units * 1.10:
+
+                reason = (
+                    "Higher sales volume may be contributing to the "
+                    "increase in expenses because more units are being sold."
+                )
+
+            elif expense_change > 0:
+
+                reason = (
+                    "The expense increase appears to be a combination "
+                    "of changes in sales volume, product mix, and operating costs."
+                )
+
+            else:
+
+                reason = (
+                    "Overall expenses have not increased significantly "
+                    "between the comparison periods."
+                )
+
+            # -------------------------------------------------
+            # Build response
+            # -------------------------------------------------
+
+            if expense_change > 0:
+
+                return (
+                    f"Your expenses increased by "
+                    f"{expense_change_pct:.1f}% when comparing the "
+                    f"first {window_size} days with the latest "
+                    f"{window_size} days. "
+
+                    f"Expenses changed from "
+                    f"₹{first_expense:,.2f} to "
+                    f"₹{latest_expense:,.2f}. "
+
+                    f"The expense-to-revenue ratio changed from "
+                    f"{first_expense_ratio:.1f}% to "
+                    f"{latest_expense_ratio:.1f}%. "
+
+                    f"Expense per unit changed by "
+                    f"{expense_per_unit_change_pct:.1f}%. "
+
+                    f"{reason} "
+
+                    f"{highest_expense_product} currently contributes "
+                    f"the highest total expense at "
+                    f"₹{highest_expense_value:,.2f}. "
+
+                    "Consider reviewing supplier prices, operating "
+                    "costs, product-level expenses, and purchasing "
+                    "quantities before the next business cycle."
+                )
+
+            elif expense_change < 0:
+
+                return (
+                    f"Your expenses decreased by "
+                    f"{abs(expense_change_pct):.1f}% when comparing "
+                    f"the first {window_size} days with the latest "
+                    f"{window_size} days. "
+
+                    f"Expenses changed from "
+                    f"₹{first_expense:,.2f} to "
+                    f"₹{latest_expense:,.2f}. "
+
+                    f"The expense-to-revenue ratio changed from "
+                    f"{first_expense_ratio:.1f}% to "
+                    f"{latest_expense_ratio:.1f}%. "
+
+                    "This suggests that your cost position has "
+                    "improved over the comparison period. "
+                    "Continue monitoring major expense categories "
+                    "to maintain this improvement."
+                )
+
+            else:
+
+                return (
+                    f"Your expenses remained relatively stable when "
+                    f"comparing the first {window_size} days with the "
+                    f"latest {window_size} days. "
+
+                    f"Expenses were approximately "
+                    f"₹{latest_expense:,.2f}. "
+
+                    f"The current expense-to-revenue ratio is "
+                    f"{latest_expense_ratio:.1f}%. "
+                    "Continue monitoring costs and major expense "
+                    "contributors to protect your profit margin."
+                )
+        except Exception:
+            return (
+                "I couldn't analyze the expense trend because "
+                "the expense or date data could not be processed."
+            )
     # ---------------------------------------------------------
     # PRODUCT PERFORMING BADLY
     # ---------------------------------------------------------
@@ -276,6 +867,296 @@ def business_assistant(
             "Review its sales volume, pricing, demand, and "
             "expenses to identify opportunities for improvement."
         )
+
+    # =========================================================
+    # INVENTORY INTELLIGENCE
+    # =========================================================
+
+    if (
+        (
+            "inventory" in question
+            or "stock" in question
+            or "products" in question
+            or "items" in question
+        )
+        and (
+            "fast" in question
+            or "slow" in question
+            or "moving" in question
+            or "sell" in question
+            or "selling" in question
+            or "velocity" in question
+            or "demand" in question
+            or "popular" in question
+            or "top" in question
+            or "best" in question
+            or "attention" in question
+        )
+    ):
+
+        try:
+            inventory_df = df.copy()
+
+            required_columns = [
+                "product",
+                "quantity_sold",
+                "revenue",
+                "date"
+            ]
+
+            missing_columns = [
+                column
+                for column in required_columns
+                if column not in inventory_df.columns
+            ]
+
+            if missing_columns:
+                return (
+                    "I can't analyze product demand because the dataset "
+                    "is missing: "
+                    + ", ".join(missing_columns)
+                    + "."
+                )
+
+            inventory_df["date"] = pd.to_datetime(
+                inventory_df["date"]
+            )
+
+            product_summary = (
+                inventory_df
+                .groupby("product")
+                .agg(
+                    units_sold=("quantity_sold", "sum"),
+                    revenue=("revenue", "sum"),
+                    active_days=("date", "nunique")
+                )
+                .sort_values(
+                    "units_sold",
+                    ascending=False
+                )
+            )
+
+            if product_summary.empty:
+                return (
+                    "I couldn't find enough product sales data "
+                    "to analyze demand."
+                )
+
+            total_days = (
+                inventory_df["date"].nunique()
+            )
+
+            product_summary["sales_velocity"] = (
+                product_summary["units_sold"]
+                / total_days
+                if total_days > 0
+                else 0
+            )
+
+            question_lower = question.lower()
+
+            if (
+                "slow" in question_lower
+                or "slow-moving" in question_lower
+                or "slow moving" in question_lower
+            ):
+                selected = (
+                    product_summary
+                    .sort_values("units_sold")
+                    .head(5)
+                )
+
+                lines = []
+                for product, row in selected.iterrows():
+                    lines.append(
+                        f"• {product}: "
+                        f"{row['units_sold']:,.0f} units sold "
+                        f"({row['sales_velocity']:.2f} units/day)"
+                    )
+
+                action = (
+                    "Review slow-moving products before committing "
+                    "additional purchasing budget. Their sales activity "
+                    "should be compared with margin and current stock "
+                    "before deciding whether to reorder."
+                )
+
+                heading = "🐌 Slow-moving products"
+
+            else:
+                selected = product_summary.head(5)
+
+                lines = []
+                for product, row in selected.iterrows():
+                    lines.append(
+                        f"• {product}: "
+                        f"{row['units_sold']:,.0f} units sold "
+                        f"({row['sales_velocity']:.2f} units/day)"
+                    )
+
+                action = (
+                    "Prioritize availability of the fastest-moving "
+                    "products and monitor their sales velocity regularly. "
+                    "This is demand-based planning; actual stock levels "
+                    "are not available in the current dataset."
+                )
+
+                heading = "🚀 Fast-moving products"
+
+            return (
+                f"📦 Inventory Intelligence\n\n"
+                f"{heading}\n\n"
+                f"{chr(10).join(lines)}\n\n"
+                f"📅 Recorded sales period: "
+                f"{inventory_df['date'].min().date()} to "
+                f"{inventory_df['date'].max().date()}\n\n"
+                f"💡 Business action: {action}"
+            )
+
+        except Exception:
+            return (
+                "I couldn't analyze product demand because the "
+                "available product, sales, or date data could not "
+                "be processed."
+            )
+
+    # =========================================================
+    # PROFIT INTELLIGENCE
+    # =========================================================
+
+    if (
+        "profit" in question
+        and (
+            "performing" in question
+            or "performance" in question
+            or "how is" in question
+            or "trend" in question
+            or "doing" in question
+            or "happening" in question
+            or "change" in question
+        )
+        and "why" not in question
+    ):
+
+        try:
+            profit_df = df.copy()
+            profit_df["date"] = pd.to_datetime(profit_df["date"])
+
+            daily_data = (
+                profit_df.groupby("date")
+                .agg(revenue=("revenue", "sum"), expense=("expense", "sum"))
+                .sort_index()
+            )
+            daily_data["profit"] = daily_data["revenue"] - daily_data["expense"]
+
+            if len(daily_data) < 2:
+                return "I need data from at least two different dates to analyze your profit performance."
+
+            if len(daily_data) >= 14:
+                first_period = profit_df[profit_df["date"].isin(daily_data.index[:7])]
+                latest_period = profit_df[profit_df["date"].isin(daily_data.index[-7:])]
+            else:
+                midpoint = len(daily_data) // 2
+                first_period = profit_df[profit_df["date"].isin(daily_data.index[:midpoint])]
+                latest_period = profit_df[profit_df["date"].isin(daily_data.index[midpoint:])]
+
+            first_revenue = first_period["revenue"].sum()
+            latest_revenue = latest_period["revenue"].sum()
+            first_expense = first_period["expense"].sum()
+            latest_expense = latest_period["expense"].sum()
+            first_profit = first_revenue - first_expense
+            latest_profit = latest_revenue - latest_expense
+
+            profit_change = latest_profit - first_profit
+            profit_change_pct = (profit_change / abs(first_profit) * 100) if first_profit != 0 else 0
+            first_margin = (first_profit / first_revenue * 100) if first_revenue > 0 else 0
+            latest_margin = (latest_profit / latest_revenue * 100) if latest_revenue > 0 else 0
+            margin_change = latest_margin - first_margin
+
+            if profit_change > 2:
+                direction = "increased"
+            elif profit_change < -2:
+                direction = "decreased"
+            else:
+                direction = "remained relatively stable"
+
+            # Product-level profit comparison
+            first_products = first_period.groupby("product").agg(
+                revenue=("revenue", "sum"),
+                expense=("expense", "sum")
+            )
+            latest_products = latest_period.groupby("product").agg(
+                revenue=("revenue", "sum"),
+                expense=("expense", "sum")
+            )
+            first_products["profit"] = first_products["revenue"] - first_products["expense"]
+            latest_products["profit"] = latest_products["revenue"] - latest_products["expense"]
+
+            products = sorted(set(first_products.index) | set(latest_products.index))
+            product_rows = []
+            for product in products:
+                fp = first_products["profit"].get(product, 0)
+                lp = latest_products["profit"].get(product, 0)
+                product_rows.append({"product": product, "first_profit": fp, "latest_profit": lp, "profit_change": lp - fp})
+
+            product_result = pd.DataFrame(product_rows)
+            losers = product_result.sort_values("profit_change").head(2)
+            gainers = product_result.sort_values("profit_change", ascending=False).head(2)
+
+            if direction == "decreased":
+                if latest_revenue < first_revenue and latest_expense > first_expense:
+                    driver = "lower revenue combined with higher expenses"
+                elif latest_revenue < first_revenue:
+                    driver = "lower revenue"
+                elif latest_expense > first_expense:
+                    driver = "higher expenses"
+                else:
+                    driver = "changes in the revenue and expense mix"
+                action = "Review the products driving the profit decline, pricing, and major cost increases before trying to increase sales volume."
+            elif direction == "increased":
+                if latest_revenue > first_revenue and latest_expense <= first_expense:
+                    driver = "higher revenue with controlled expenses"
+                elif latest_revenue > first_revenue:
+                    driver = "higher revenue"
+                elif latest_expense < first_expense:
+                    driver = "lower expenses"
+                else:
+                    driver = "changes in the revenue and expense mix"
+                action = "Protect the products and cost controls contributing to the improvement, and monitor whether the stronger margin continues."
+            else:
+                driver = "relatively stable revenue and expense performance"
+                action = "Look for products with weak margins and opportunities to improve pricing or reduce unnecessary costs."
+
+            loser_text = []
+            for _, row in losers.iterrows():
+                if row["profit_change"] < 0:
+                    loser_text.append(f"{row['product']} (₹{abs(row['profit_change']):,.2f} lower profit)")
+            gainer_text = []
+            for _, row in gainers.iterrows():
+                if row["profit_change"] > 0:
+                    gainer_text.append(f"{row['product']} (₹{row['profit_change']:,.2f} higher profit)")
+
+            product_insight = ""
+            if loser_text:
+                product_insight += "\n🔻 Biggest profit pressure: " + ", ".join(loser_text) + "."
+            if gainer_text:
+                product_insight += "\n🏆 Strongest profit contributors to the improvement: " + ", ".join(gainer_text) + "."
+
+            return (
+                f"💰 Profit Performance\n\n"
+                f"Your profit {direction} by ₹{abs(profit_change):,.2f} "
+                f"({abs(profit_change_pct):.1f}%) between the comparison periods.\n\n"
+                f"First period profit: ₹{first_profit:,.2f}\n"
+                f"Latest period profit: ₹{latest_profit:,.2f}\n"
+                f"Profit margin: {first_margin:.1f}% → {latest_margin:.1f}% "
+                f"({margin_change:+.1f} percentage points)\n\n"
+                f"🔎 Main driver: {driver}."
+                f"{product_insight}\n"
+                f"💡 Business action: {action}"
+            )
+
+        except Exception:
+            return "I couldn't analyze profit performance because the available revenue, expense, product, or date data could not be processed."
 
     # =========================================================
     # PROFIT CHANGE / TREND DIAGNOSIS
@@ -689,7 +1570,7 @@ def business_assistant(
             )
 
     # =========================================================
-    # REVENUE TREND DIAGNOSIS
+    # REVENUE PERFORMANCE ANALYSIS
     # =========================================================
 
     if (
@@ -707,6 +1588,11 @@ def business_assistant(
             or "declined" in question
             or "growth" in question
             or "growing" in question
+            or "performing" in question
+            or "performance" in question
+            or "doing" in question
+            or "happening" in question
+            or "how is" in question
         )
         and not (
             "gained share" in question
@@ -716,78 +1602,265 @@ def business_assistant(
     ):
 
         try:
-
             revenue_df = df.copy()
+            revenue_df["date"] = pd.to_datetime(revenue_df["date"])
 
-            revenue_df["date"] = pd.to_datetime(
-                revenue_df["date"]
-            )
-
-            daily_revenue = (
+            daily_data = (
                 revenue_df
-                .groupby("date")["revenue"]
-                .sum()
+                .groupby("date")
+                .agg(
+                    revenue=("revenue", "sum"),
+                    units=("quantity_sold", "sum")
+                )
                 .sort_index()
             )
 
-            if len(daily_revenue) < 2:
+            if len(daily_data) < 2:
                 return (
-                    "I need data from at least two different "
-                    "dates to analyze your revenue trend."
+                    "I need data from at least two different dates "
+                    "to analyze your revenue performance."
                 )
 
-            first_revenue = daily_revenue.iloc[0]
-            last_revenue = daily_revenue.iloc[-1]
+            average_daily_revenue = daily_data["revenue"].mean()
+            first_date = daily_data.index[0]
+            last_date = daily_data.index[-1]
 
-            revenue_change = last_revenue - first_revenue
-
-            if first_revenue != 0:
-                change_percent = (
-                    revenue_change / first_revenue
-                ) * 100
+            if len(daily_data) >= 14:
+                first_period = daily_data.iloc[:7]
+                latest_period = daily_data.iloc[-7:]
+                period_label = "first 7 days vs latest 7 days"
             else:
-                change_percent = 0
+                midpoint = len(daily_data) // 2
+                if midpoint == 0:
+                    return "I need data from at least two different dates to analyze revenue performance."
+                first_period = daily_data.iloc[:midpoint]
+                latest_period = daily_data.iloc[midpoint:]
+                period_label = "first half vs second half of the recorded period"
 
-            average_daily_revenue = daily_revenue.mean()
+            first_period_revenue = first_period["revenue"].sum()
+            latest_period_revenue = latest_period["revenue"].sum()
+            first_period_units = first_period["units"].sum()
+            latest_period_units = latest_period["units"].sum()
 
-            if revenue_change > 0:
+            revenue_period_change = latest_period_revenue - first_period_revenue
+            units_change = latest_period_units - first_period_units
 
-                direction = "increased"
-                absolute_change = revenue_change
-
-            elif revenue_change < 0:
-
-                direction = "decreased"
-                absolute_change = abs(revenue_change)
-
-            else:
-
-                return (
-                    f"Your revenue remained stable between "
-                    f"{daily_revenue.index[0].date()} and "
-                    f"{daily_revenue.index[-1].date()}. "
-                    f"Your average daily revenue was "
-                    f"₹{average_daily_revenue:,.2f}."
-                )
-
-            return (
-                f"Your revenue {direction} from "
-                f"₹{first_revenue:,.2f} to "
-                f"₹{last_revenue:,.2f} between "
-                f"{daily_revenue.index[0].date()} and "
-                f"{daily_revenue.index[-1].date()}. "
-                f"That is a {direction} of "
-                f"₹{absolute_change:,.2f} "
-                f"({abs(change_percent):.1f}%). "
-                f"Your average daily revenue during this "
-                f"period was ₹{average_daily_revenue:,.2f}."
+            revenue_change_percent = (
+                (revenue_period_change / first_period_revenue) * 100
+                if first_period_revenue != 0 else 0
+            )
+            units_change_percent = (
+                (units_change / first_period_units) * 100
+                if first_period_units != 0 else 0
             )
 
-        except Exception:
+            first_revenue_per_unit = (
+                first_period_revenue / first_period_units
+                if first_period_units > 0 else 0
+            )
+            latest_revenue_per_unit = (
+                latest_period_revenue / latest_period_units
+                if latest_period_units > 0 else 0
+            )
+            revenue_per_unit_change_percent = (
+                (
+                    (latest_revenue_per_unit - first_revenue_per_unit)
+                    / first_revenue_per_unit
+                ) * 100
+                if first_revenue_per_unit != 0 else 0
+            )
 
+            if revenue_change_percent > 2:
+                direction = "increased"
+            elif revenue_change_percent < -2:
+                direction = "decreased"
+            else:
+                direction = "remained relatively stable"
+
+            if direction == "increased":
+                if units_change_percent > 0 and revenue_per_unit_change_percent > 0:
+                    driver = "both higher sales volume and higher revenue per unit"
+                elif units_change_percent > 0:
+                    driver = "higher sales volume"
+                elif revenue_per_unit_change_percent > 0:
+                    driver = "higher revenue per unit"
+                else:
+                    driver = "a combination of sales volume and revenue changes"
+            elif direction == "decreased":
+                if units_change_percent < 0 and revenue_per_unit_change_percent < 0:
+                    driver = "both lower sales volume and lower revenue per unit"
+                elif units_change_percent < 0:
+                    driver = "lower sales volume"
+                elif revenue_per_unit_change_percent < 0:
+                    driver = "lower revenue per unit"
+                else:
+                    driver = "a combination of sales volume and revenue-per-unit changes"
+            else:
+                driver = "relatively stable sales volume and revenue per unit"
+
+            # -------------------------------------------------
+            # PRODUCT-LEVEL DRILLDOWN
+            # -------------------------------------------------
+            product_insight = ""
+            product_action = ""
+
+            required_columns = {"product", "revenue", "quantity_sold"}
+            if required_columns.issubset(revenue_df.columns):
+                first_product = (
+                    revenue_df[revenue_df["date"].isin(first_period.index)]
+                    .groupby("product")
+                    .agg(revenue=("revenue", "sum"), units=("quantity_sold", "sum"))
+                )
+                latest_product = (
+                    revenue_df[revenue_df["date"].isin(latest_period.index)]
+                    .groupby("product")
+                    .agg(revenue=("revenue", "sum"), units=("quantity_sold", "sum"))
+                )
+
+                all_products = sorted(set(first_product.index) | set(latest_product.index), key=str)
+                product_rows = []
+
+                for product in all_products:
+                    first_rev = float(first_product["revenue"].get(product, 0))
+                    latest_rev = float(latest_product["revenue"].get(product, 0))
+                    first_units = float(first_product["units"].get(product, 0))
+                    latest_units = float(latest_product["units"].get(product, 0))
+
+                    first_rpu = first_rev / first_units if first_units > 0 else 0
+                    latest_rpu = latest_rev / latest_units if latest_units > 0 else 0
+                    rpu_change_pct = (
+                        ((latest_rpu - first_rpu) / first_rpu) * 100
+                        if first_rpu != 0 else 0
+                    )
+                    first_share = (
+                        (first_rev / first_period_revenue) * 100
+                        if first_period_revenue != 0 else 0
+                    )
+                    latest_share = (
+                        (latest_rev / latest_period_revenue) * 100
+                        if latest_period_revenue != 0 else 0
+                    )
+
+                    product_rows.append({
+                        "product": product,
+                        "revenue_change": latest_rev - first_rev,
+                        "units_change": latest_units - first_units,
+                        "rpu_change_pct": rpu_change_pct,
+                        "share_change": latest_share - first_share,
+                    })
+
+                product_result = pd.DataFrame(product_rows)
+
+                if not product_result.empty:
+                    declining = product_result.sort_values("revenue_change").head(2)
+                    growing = product_result.sort_values("revenue_change", ascending=False).head(2)
+
+                    negative_rows = declining[declining["revenue_change"] < 0]
+                    positive_rows = growing[growing["revenue_change"] > 0]
+
+                    if direction == "decreased" and not negative_rows.empty:
+                        insights = []
+                        for _, row in negative_rows.iterrows():
+                            text = (
+                                f"{row['product']} had the largest revenue decline of "
+                                f"₹{abs(row['revenue_change']):,.2f}"
+                            )
+                            if row["rpu_change_pct"] < -2:
+                                text += f" and its revenue per unit fell {abs(row['rpu_change_pct']):.1f}%"
+                            elif row["units_change"] < 0:
+                                text += f" with units sold down by {abs(row['units_change']):,.0f}"
+                            insights.append(text + ".")
+                        product_insight = "🔎 Product-level insight\n" + "\n".join(insights)
+
+                        if units_change_percent > 0 and revenue_per_unit_change_percent < 0:
+                            product_action = (
+                                "💡 Business action: Sales volume is already increasing. "
+                                "Review the products above for pricing, discounting, and "
+                                "lower-value mix changes rather than simply trying to sell more units."
+                            )
+                        else:
+                            product_action = (
+                                "💡 Business action: Review demand, pricing, and costs for "
+                                "the products showing the largest revenue declines."
+                            )
+
+                    elif direction == "increased" and not positive_rows.empty:
+                        insights = []
+                        for _, row in positive_rows.iterrows():
+                            insights.append(
+                                f"{row['product']} added ₹{row['revenue_change']:,.2f} in revenue."
+                            )
+                        product_insight = "🔎 Product-level growth\n" + "\n".join(insights)
+                        product_action = (
+                            "💡 Business action: Protect the products driving growth and "
+                            "check whether their demand can be scaled without weakening margins."
+                        )
+                    elif direction == "remained relatively stable":
+                        product_insight = (
+                            "🔎 Product-level insight\n"
+                            "No major product-level revenue movement is strong enough to "
+                            "explain a large overall change."
+                        )
+
+            if direction == "decreased":
+                if units_change_percent > 0 and revenue_per_unit_change_percent < 0:
+                    recommendation = (
+                        "Sales volume is already increasing, but revenue per unit is falling. "
+                        "Investigate discounts, price reductions, and shifts toward lower-value "
+                        "products. Focus on improving product mix and revenue per sale rather "
+                        "than simply increasing unit volume."
+                    )
+                elif units_change_percent < 0 and revenue_per_unit_change_percent < 0:
+                    recommendation = (
+                        "Both sales volume and revenue per unit are falling. Review demand, "
+                        "pricing, discounts, and the performance of your main products."
+                    )
+                elif units_change_percent < 0:
+                    recommendation = (
+                        "Revenue is falling mainly because fewer units are being sold. "
+                        "Investigate demand, customer activity, and the products losing volume."
+                    )
+                else:
+                    recommendation = (
+                        "Revenue is falling. Review product-level revenue, pricing, and sales "
+                        "mix to identify the strongest source of pressure."
+                    )
+            elif direction == "increased":
+                recommendation = (
+                    "Revenue is improving. Continue monitoring the products and sales patterns "
+                    "driving growth while protecting profitability."
+                )
+            else:
+                recommendation = (
+                    "Revenue is relatively stable. Look for opportunities to increase sales "
+                    "volume or improve revenue per sale without weakening margins."
+                )
+
+            report = (
+                f"📊 Revenue Performance\n\n"
+                f"Your revenue {direction} by {abs(revenue_change_percent):.1f}% "
+                f"when comparing the {period_label}.\n\n"
+                f"💰 First period revenue: ₹{first_period_revenue:,.2f}\n"
+                f"💰 Latest period revenue: ₹{latest_period_revenue:,.2f}\n"
+                f"📦 Sales volume change: {units_change_percent:+.1f}%\n"
+                f"💵 Revenue per unit change: {revenue_per_unit_change_percent:+.1f}%\n\n"
+                f"🔎 Main driver: {driver}.\n\n"
+                f"📈 Overall recorded period: {first_date.date()} to {last_date.date()}\n"
+                f"Average daily revenue: ₹{average_daily_revenue:,.2f}\n\n"
+                f"💡 Recommendation: {recommendation}"
+            )
+
+            if product_insight:
+                report += f"\n\n{product_insight}"
+            if product_action:
+                report += f"\n\n{product_action}"
+
+            return report
+
+        except Exception:
             return (
-                "I couldn't analyze the revenue trend because "
-                "the date data could not be processed."
+                "I couldn't analyze the revenue performance because the available "
+                "revenue, date, product, or sales-volume data could not be processed."
             )
 
     # =========================================================
@@ -1149,36 +2222,42 @@ def business_assistant(
     # IMPORTANT:
     # Only answer a simple revenue question here.
     # Diagnosis/trend questions are handled above.
-
     if (
-        "revenue" in question
-        and not (
-            "why" in question
-            or "reason" in question
-            or "cause" in question
-            or "decrease" in question
-            or "decreased" in question
-            or "decline" in question
-            or "declined" in question
-            or "drop" in question
-            or "change" in question
-            or "changed" in question
-            or "increase" in question
-            or "increased" in question
-            or "trend" in question
-            or "growth" in question
-            or "growing" in question
-            or "product mix" in question
-            or "gained share" in question
-            or "lost share" in question
-        )
-    ):
-
+    "revenue" in question
+    and not (
+        "why" in question
+        or "reason" in question
+        or "cause" in question
+        or "decrease" in question
+        or "decreased" in question
+        or "decline" in question
+        or "declined" in question
+        or "drop" in question
+        or "change" in question
+        or "changed" in question
+        or "increase" in question
+        or "increased" in question
+        or "trend" in question
+        or "growth" in question
+        or "growing" in question
+        or "performing" in question
+        or "performance" in question
+        or "doing" in question
+        or "happening" in question
+        or "performing" in question
+        or "performance" in question
+        or "doing" in question
+        or "how is" in question
+        or "happening" in question
+        or "product mix" in question
+        or "gained share" in question
+        or "lost share" in question
+    )
+):
         return (
-            f"Your total revenue is "
-            f"₹{total_revenue:,.2f}."
-        )
-
+        f"Your total revenue is "
+        f"₹{total_revenue:,.2f}."
+    )
     if "profit" in question:
 
         return (
